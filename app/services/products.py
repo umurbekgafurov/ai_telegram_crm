@@ -1,7 +1,4 @@
-"""Product business logic (tenant-aware).
-
-No Telegram imports here. Used by bot handlers and (future) FastAPI.
-"""
+"""Product business logic (tenant-aware). No Telegram imports."""
 
 from __future__ import annotations
 
@@ -12,18 +9,11 @@ from html import escape
 from app.database.models import Product
 from app.database.repositories.products import ProductRepository
 
-# Limits matching DB schema: NUMERIC(12,2) and 32-bit INT
 MAX_PRICE = Decimal("9999999999.99")
 MAX_STOCK = 2_147_483_647
 
 
-# --------------------------------------------------------------------------
-# Validation
-# --------------------------------------------------------------------------
-
-
 def validate_price(raw: str) -> Decimal:
-    """Parse and validate a price. Raises ValueError on invalid input."""
     normalized = (raw or "").strip().replace(",", ".")
     if not normalized:
         raise ValueError("Narx bo\u2019sh bo\u2019lishi mumkin emas")
@@ -43,7 +33,6 @@ def validate_price(raw: str) -> Decimal:
 
 
 def validate_stock(raw: str) -> int:
-    """Parse and validate a stock quantity. Raises ValueError on invalid input."""
     normalized = (raw or "").strip()
     if not normalized:
         raise ValueError("Miqdor bo\u2019sh bo\u2019lishi mumkin emas")
@@ -55,22 +44,11 @@ def validate_stock(raw: str) -> int:
     return stock
 
 
-# --------------------------------------------------------------------------
-# SKU uniqueness (pre-check; DB composite constraint is authoritative)
-# --------------------------------------------------------------------------
-
-
 async def validate_sku_unique(
     repo: ProductRepository, tenant_id: int, sku: str
 ) -> bool:
-    """Return True if sku is available within the tenant."""
     existing = await repo.get_by_sku(tenant_id=tenant_id, sku=sku)
     return existing is None
-
-
-# --------------------------------------------------------------------------
-# Creation / listing
-# --------------------------------------------------------------------------
 
 
 async def create_product(
@@ -82,7 +60,6 @@ async def create_product(
     price: Decimal,
     stock_quantity: int,
 ) -> Product:
-    """Create a product scoped to tenant_id. Does NOT commit."""
     return await repo.create(
         tenant_id=tenant_id,
         name=name,
@@ -99,23 +76,16 @@ async def list_active_products(
     page: int,
     page_size: int,
 ) -> list[Product]:
-    """Return one page of active products for the tenant, newest first."""
     offset = page * page_size
     return await repo.list_active(
         tenant_id=tenant_id, limit=page_size, offset=offset
     )
 
 
-# --------------------------------------------------------------------------
-# Presentation
-# --------------------------------------------------------------------------
-
-
 EMPTY_PAGE_TEXT = "Hozircha faol mahsulotlar yo\u2019q."
 
 
 def format_products_page(products: list[Product], page: int) -> str:
-    """Render a page of products (HTML parse mode, escaped)."""
     if not products and page == 0:
         return EMPTY_PAGE_TEXT
     lines = [f"\U0001F4CB Mahsulotlar (sahifa {page + 1}):\n"]
