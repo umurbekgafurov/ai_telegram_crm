@@ -6,11 +6,9 @@ Create Date: 2026-09-27
 """
 
 from __future__ import annotations
-
 from collections.abc import Sequence
-
 from alembic import op
-import sqlalchemy as sa
+
 
 
 revision: str = 'b7c8d9e0f1a2'
