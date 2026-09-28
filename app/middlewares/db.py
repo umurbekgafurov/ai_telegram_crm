@@ -5,8 +5,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
+
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
+
 from app.database.database import async_session_factory
 from app.database.repositories.products import ProductRepository
 
@@ -37,5 +39,5 @@ class DatabaseMiddleware(BaseMiddleware):
                 except Exception:
                     logger.exception("Commit failed; rolling back.")
                     await session.rollback()
-                 raise
+                    raise
                 return result
