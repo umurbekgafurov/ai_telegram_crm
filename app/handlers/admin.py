@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 
 from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.keyboards.admin import main_admin_menu
 from app.services.auth import admin_only
 
 logger = logging.getLogger(__name__)
@@ -37,4 +39,15 @@ async def settings_menu(message: Message, session: AsyncSession) -> None:
         "\u2022 AI promptlar\n"
         "\u2022 Integratsiyalar\n\n"
         "Hozircha mavjud emas."
+    )
+
+
+@router.message(F.text == "\U0001F3E0 Bosh menyu")
+async def back_to_main_menu(message: Message, state: FSMContext) -> None:
+    """Return to the main admin menu from anywhere."""
+    await state.clear()
+    await message.answer(
+        "\U0001F3E0 <b>Bosh menyu</b>\n\n"
+        "Quyidagi bo\u2019limlardan birini tanlang:",
+        reply_markup=main_admin_menu(),
     )
