@@ -37,11 +37,8 @@ class DatabaseMiddleware(BaseMiddleware):
             else:
                 try:
                     await session.commit()
-                except PendingRollbackError:
-                    logger.exception(
-                        "Session was rollback-only at commit; a handler probably "
-                        "swallowed an IntegrityError without rollback()."
-                    )
+                except Exception:
+                    logger.exception("Commit failed; rolling back.")
                     await session.rollback()
-                    raise
+                raise
                 return result
