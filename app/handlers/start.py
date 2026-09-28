@@ -20,7 +20,11 @@ settings = get_settings()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, session: AsyncSession) -> None:
+async def cmd_start(
+    message: Message,
+    session: AsyncSession,
+    membership_role: str | None = None,
+) -> None:
     """Handle /start: register/update the user and greet them."""
     if message.from_user is None:
         return
@@ -31,9 +35,19 @@ async def cmd_start(message: Message, session: AsyncSession) -> None:
         username=message.from_user.username,
         first_name=message.from_user.first_name,
         admin_ids=settings.ADMIN_IDS,
+        default_tenant_name=settings.DEFAULT_TENANT_NAME,
+        default_tenant_slug=settings.DEFAULT_TENANT_SLUG,
     )
 
-    if user.role in ("admin", "manager"):
+    # membership_role is injected by TenantMiddleware on the NEXT update,
+    # so for the first /start we resolve directly from the freshly-created
+    # membership (or fall back to users.role for legacy users).
+    is_admin_user = (
+        membership_role in ("OWNER", "ADMIN")
+        or message.from_user.id in settings.ADMIN_IDS
+    )
+
+    if is_admin_user:
         await message.answer(
             f"Xush kelibsiz, {user.first_name or 'admin'}! Boshqaruv paneli tayyor.",
             reply_markup=main_admin_menu(),
