@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import ErrorEvent
 
 from app.config import get_settings
 from app.database.database import dispose_engine, init_db
@@ -27,7 +27,6 @@ def _configure_logging(level: str) -> None:
 
 
 async def on_startup(dev_mode: bool) -> None:
-    """Run startup tasks."""
     if dev_mode:
         logger.info("DEV_MODE enabled: running init_db() to create tables.")
         await init_db()
@@ -35,7 +34,6 @@ async def on_startup(dev_mode: bool) -> None:
 
 
 async def on_shutdown() -> None:
-    """Run graceful shutdown tasks."""
     await dispose_engine()
     logger.info("Bot shutdown complete.")
 
@@ -44,29 +42,37 @@ async def main() -> None:
     settings = get_settings()
     _configure_logging(settings.LOG_LEVEL)
 
-    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
-
     bot = Bot(
         token=settings.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
 
-    # Middlewares — DB session/repo injected for every update (messages + callbacks).
+    @dispatcher.errors()
+    async def on_error(event: ErrorEvent) -> None:
+        logger.exception("Unhandled exception", exc_info=event.exception)
+        try:
+            update = event.update
+            if update.message is not None:
+                await update.message.answer(
+                    "Xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko\u2019ring."
+                )
+            elif update.callback_query is not None:
+                await update.callback_query.answer(
+                    "Xatolik yuz berdi.", show_alert=True
+                )
+        except Exception:
+            logger.exception("Failed to notify user about error")
+
     dispatcher.update.middleware(DatabaseMiddleware())
 
-    # Routers — ORDER MATTERS:
-    #   admin first (its text handlers must not be shadowed by products)
-    #   products second (handles 📦 Mahsulotlar and FSM)
-    #   start last (only /start)
     dispatcher.include_router(start.router)
     dispatcher.include_router(admin.router)
     dispatcher.include_router(products.router)
 
-    await on_startup(dev_mode)
+    await on_startup(settings.DEV_MODE)
 
     try:
-        # Drop any pending updates accumulated while the bot was offline.
         await bot.delete_webhook(drop_pending_updates=True)
         await dispatcher.start_polling(bot)
     except Exception:
