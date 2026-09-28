@@ -13,7 +13,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install poetry and project dependencies (no dev deps, no root package install).
-COPY pyproject.toml ./
+COPY pyproject.toml poetry.lock ./
 RUN pip install --no-cache-dir poetry \
     && poetry config virtualenvs.create false \
     && poetry install --no-root --only main --no-interaction --no-ansi
