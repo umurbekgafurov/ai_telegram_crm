@@ -1,4 +1,4 @@
-FILES["app/services/auth.py"] = '''"""Authorization service + @admin_only decorator (tenant-aware).""" 
+"""Authorization service + @admin_only decorator (tenant-aware)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import TenantMembership
+from app.database.models import TenantMembership, User
 from app.services.memberships import ADMIN_ROLES
 
 logger = logging.getLogger(__name__)
@@ -20,41 +20,25 @@ logger = logging.getLogger(__name__)
 async def is_admin(
     session: AsyncSession, telegram_id: int, tenant_id: int | None = None
 ) -> bool:
-    """Return True if user is admin of the given tenant.
+    """Return True if user is OWNER/ADMIN of the given tenant.
 
-    If tenant_id is None, resolves the user's first active tenant membership
-    and checks its role. Authorization is ALWAYS based on tenant_memberships,
-    never on users.role.
+    Authorization is ALWAYS based on tenant_memberships, never users.role.
+    If tenant_id is None, matches any active admin membership.
     """
-    if tenant_id is None:
-        # Resolve user's first active admin membership
-        result = await session.execute(
-            select(TenantMembership.role)
-            .join(
-                "users",
-                "users.id = tenant_memberships.user_id",
-            )
-            .where(
-                "users.telegram_id = :tid",
-                TenantMembership.is_active.is_(True),
-                TenantMembership.role.in_(ADMIN_ROLES),
-            )
-            .limit(1),
-            {"tid": telegram_id},
-        )
-        role = result.scalar_one_or_none()
-        return role in ADMIN_ROLES
-
-    result = await session.execute(
+    stmt = (
         select(TenantMembership.role)
-        .join("users", "users.id = tenant_memberships.user_id")
+        .join(User, User.id == TenantMembership.user_id)
         .where(
-            "users.telegram_id = :tid",
-            TenantMembership.tenant_id == tenant_id,
+            User.telegram_id == telegram_id,
             TenantMembership.is_active.is_(True),
-        ),
-        {"tid": telegram_id},
+            TenantMembership.role.in_(ADMIN_ROLES),
+        )
+        .limit(1)
     )
+    if tenant_id is not None:
+        stmt = stmt.where(TenantMembership.tenant_id == tenant_id)
+
+    result = await session.execute(stmt)
     role = result.scalar_one_or_none()
     return role in ADMIN_ROLES
 
@@ -62,9 +46,9 @@ async def is_admin(
 def admin_only(handler: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     """Decorator: gate handler to OWNER/ADMIN of the resolved tenant.
 
-    Requires `session` in kwargs (via DatabaseMiddleware) and either
-    `tenant_id`/`membership_role` in kwargs (via TenantMiddleware) or
-    it will resolve from DB.
+    Priority:
+    1. `membership_role` in kwargs (from TenantMiddleware) -> use it.
+    2. Else resolve via DB using `tenant_id` (if provided) or any tenant.
     """
 
     @wraps(handler)
