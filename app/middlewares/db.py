@@ -40,5 +40,5 @@ class DatabaseMiddleware(BaseMiddleware):
                 except Exception:
                     logger.exception("Commit failed; rolling back.")
                     await session.rollback()
-                raise
+                    raise            # ← TO'G'RI: except ICHIDA (4 bo'sh joy)
                 return result
