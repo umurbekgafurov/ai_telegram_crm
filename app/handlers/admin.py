@@ -43,7 +43,10 @@ async def settings_menu(message: Message, session: AsyncSession) -> None:
 
 
 @router.message(F.text == "\U0001F3E0 Bosh menyu")
-async def back_to_main_menu(message: Message, state: FSMContext) -> None:
+@admin_only
+async def back_to_main_menu(
+    message: Message, state: FSMContext, session: AsyncSession
+) -> None:
     """Return to the main admin menu from anywhere."""
     await state.clear()
     await message.answer(
