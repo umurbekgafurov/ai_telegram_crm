@@ -1,0 +1,5 @@
+MIT License
+
+Copyright (c) 2026 Umurbek Gafurov
+
+Permission is hereby granted, free of charge, ...
