@@ -1,4 +1,4 @@
-"""Unit tests for app.services.products."""
+"""Unit tests for app.services.products (tenant-aware)."""
 
 from __future__ import annotations
 
@@ -46,6 +46,30 @@ def test_validate_price_negative() -> None:
         svc.validate_price("-100")
 
 
+def test_validate_price_nan() -> None:
+    with pytest.raises(ValueError):
+        svc.validate_price("NaN")
+
+
+def test_validate_price_infinity() -> None:
+    with pytest.raises(ValueError):
+        svc.validate_price("Infinity")
+
+
+def test_validate_price_too_large() -> None:
+    with pytest.raises(ValueError):
+        svc.validate_price("10000000000")
+
+
+def test_validate_price_too_many_decimals() -> None:
+    with pytest.raises(ValueError):
+        svc.validate_price("10.999")
+
+
+def test_validate_price_max_boundary() -> None:
+    assert svc.validate_price("9999999999.99") == Decimal("9999999999.99")
+
+
 # --- validate_stock --------------------------------------------------------
 
 
@@ -77,21 +101,31 @@ def test_validate_stock_decimal() -> None:
         svc.validate_stock("1.5")
 
 
-# --- validate_sku_unique ---------------------------------------------------
+def test_validate_stock_too_large() -> None:
+    with pytest.raises(ValueError):
+        svc.validate_stock("2147483648")
+
+
+def test_validate_stock_max_boundary() -> None:
+    assert svc.validate_stock("2147483647") == 2147483647
+
+
+# --- validate_sku_unique (tenant-scoped) -----------------------------------
 
 
 @pytest.mark.asyncio
 async def test_validate_sku_unique_available() -> None:
     repo = MagicMock()
     repo.get_by_sku = AsyncMock(return_value=None)
-    assert await svc.validate_sku_unique(repo, "NEW-SKU") is True
+    assert await svc.validate_sku_unique(repo, 1, "NEW-SKU") is True
+    repo.get_by_sku.assert_awaited_once_with(tenant_id=1, sku="NEW-SKU")
 
 
 @pytest.mark.asyncio
 async def test_validate_sku_unique_taken() -> None:
     repo = MagicMock()
     repo.get_by_sku = AsyncMock(return_value=object())
-    assert await svc.validate_sku_unique(repo, "TAKEN-SKU") is False
+    assert await svc.validate_sku_unique(repo, 1, "TAKEN-SKU") is False
 
 
 # --- create_product --------------------------------------------------------
@@ -105,6 +139,7 @@ async def test_create_product_calls_repo() -> None:
 
     result = await svc.create_product(
         repo,
+        tenant_id=42,
         name="iPhone 15 Pro",
         sku="IPH15P",
         price=Decimal("15000000.00"),
@@ -113,6 +148,7 @@ async def test_create_product_calls_repo() -> None:
 
     assert result is fake_product
     repo.create.assert_awaited_once_with(
+        tenant_id=42,
         name="iPhone 15 Pro",
         sku="IPH15P",
         price=Decimal("15000000.00"),
@@ -130,6 +166,7 @@ async def test_create_product_propagates_integrity_error() -> None:
     with pytest.raises(IntegrityError):
         await svc.create_product(
             repo,
+            tenant_id=1,
             name="X",
             sku="X",
             price=Decimal("1"),
@@ -145,9 +182,9 @@ async def test_list_active_products_pagination() -> None:
     repo = MagicMock()
     repo.list_active = AsyncMock(return_value=[])
 
-    await svc.list_active_products(repo, page=2, page_size=10)
+    await svc.list_active_products(repo, tenant_id=7, page=2, page_size=10)
 
-    repo.list_active.assert_awaited_once_with(limit=10, offset=20)
+    repo.list_active.assert_awaited_once_with(tenant_id=7, limit=10, offset=20)
 
 
 # --- format_products_page --------------------------------------------------
