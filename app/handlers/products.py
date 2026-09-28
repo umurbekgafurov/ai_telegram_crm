@@ -294,7 +294,10 @@ async def back_to_products_menu(callback: CallbackQuery, session: AsyncSession) 
 
 
 @router.callback_query(F.data == CB_HOME)
-async def back_to_home(callback: CallbackQuery, state: FSMContext) -> None:
+@admin_only
+async def back_to_home(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession
+) -> None:
     """Return to the main reply keyboard menu."""
     await state.clear()
 
