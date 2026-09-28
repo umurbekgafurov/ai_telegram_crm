@@ -27,6 +27,7 @@ def main_admin_menu() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="\U0001F4E6 Mahsulotlar")],
             [KeyboardButton(text="\U0001F4CA Hisobotlar"), KeyboardButton(text="\u2699\uFE0F Sozlamalar")],
+            [KeyboardButton(text="\U0001F3E0 Bosh menyu")],
         ],
         resize_keyboard=True,
         is_persistent=True,
