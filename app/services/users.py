@@ -26,7 +26,7 @@ async def upsert_user(
 ) -> User:
     """Create or update a User, and ensure ADMIN_IDS users have a membership.
 
-    Regular (non-admin) users get a users row only — no membership.
+    Regular (non-admin) users get a users row only -- no membership.
     This matches the current single-tenant CRM where only admins manage data.
     """
     result = await session.execute(
@@ -39,7 +39,7 @@ async def upsert_user(
             telegram_id=telegram_id,
             username=username,
             first_name=first_name,
-            role="customer",  # legacy field
+            role="customer",  # legacy
         )
         session.add(user)
         await session.flush()
@@ -49,7 +49,6 @@ async def upsert_user(
         user.first_name = first_name
         await session.flush()
 
-    # Only ADMIN_IDS users get a tenant membership in M2.2.
     if telegram_id in admin_ids:
         tenant = await get_or_create_default_tenant(
             session, name=default_tenant_name, slug=default_tenant_slug
@@ -60,23 +59,8 @@ async def upsert_user(
             user_id=user.id,
             role=ROLE_ADMIN,
         )
-        # Keep legacy role in sync for backward compat (not used for authz)
         if user.role != "admin":
             user.role = "admin"
             await session.flush()
 
     return user
-
-
-async def has_active_membership(session: AsyncSession, *, user_id: int) -> bool:
-    """Return True if the user has at least one active tenant membership."""
-    result = await session.execute(
-        select(User.id)
-        .join("tenant_memberships", "tenant_memberships.user_id = users.id")
-        .where(
-            User.id == user_id,
-            "tenant_memberships.is_active = true",
-        )
-        .limit(1)
-    )
-    return result.scalar_one_or_none() is not None
