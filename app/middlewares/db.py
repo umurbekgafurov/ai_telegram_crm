@@ -37,5 +37,5 @@ class DatabaseMiddleware(BaseMiddleware):
                 except Exception:
                     logger.exception("Commit failed; rolling back.")
                     await session.rollback()
-                    raise            
+                 raise
                 return result
