@@ -14,6 +14,7 @@ from aiogram.dispatcher.middlewares.user_context import UserContextMiddleware
 from aiogram.client.session.base import BaseSession
 from aiogram.types import Chat, Message, Update, User as TgUser
 
+from app.middlewares.db import DatabaseMiddleware
 from app.middlewares.tenant import TenantMiddleware
 from app.database.models import Tenant, TenantMembership, User
 
@@ -119,7 +120,8 @@ async def test_middleware_reads_event_from_user(
     # In production it is added by the real Dispatcher setup; here we add it
     # explicitly so the test mirrors production behaviour.
     dp.update.outer_middleware(UserContextMiddleware())
-    dp.update.middleware(TenantMiddleware())
+    dp.update.middleware(DatabaseMiddleware())   # injects session + repo
+    dp.update.middleware(TenantMiddleware())     # uses session + event_from_user
 
     @dp.message()
     async def _capture(message, tenant_id=None, membership_role=None, db_user=None):
