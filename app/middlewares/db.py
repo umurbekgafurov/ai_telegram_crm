@@ -1,4 +1,4 @@
-"""Middleware that injects a per-update DB session and repository into handlers."""
+"""Middleware: injects per-update DB session + repository."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any
 
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
+from sqlalchemy.exc import PendingRollbackError
 
 from app.database.database import async_session_factory
 from app.database.repositories.products import ProductRepository
@@ -16,12 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseMiddleware(BaseMiddleware):
-    """Opens one AsyncSession per incoming update.
-
-    Commits on successful handler completion, rolls back on any exception,
-    and always closes the session afterwards. Injects `session` and `repo`
-    (ProductRepository) into the handler's data dict.
-    """
+    """Opens one AsyncSession per update; commits on success, rolls back on error."""
 
     async def __call__(
         self,
@@ -36,8 +32,16 @@ class DatabaseMiddleware(BaseMiddleware):
                 result = await handler(event, data)
             except Exception:
                 await session.rollback()
-                logger.exception("Unhandled exception in handler, session rolled back.")
+                logger.exception("Unhandled exception in handler; session rolled back.")
                 raise
             else:
-                await session.commit()
+                try:
+                    await session.commit()
+                except PendingRollbackError:
+                    logger.exception(
+                        "Session was rollback-only at commit; a handler probably "
+                        "swallowed an IntegrityError without rollback()."
+                    )
+                    await session.rollback()
+                    raise
                 return result
