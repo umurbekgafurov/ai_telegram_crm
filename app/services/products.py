@@ -5,6 +5,7 @@ Used by bot handlers and (future) FastAPI. No Telegram imports here.
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal, InvalidOperation
 from html import escape
 
@@ -33,8 +34,14 @@ def validate_price(raw: str) -> Decimal:
         price = Decimal(normalized)
     except (InvalidOperation, ValueError) as exc:
         raise ValueError("Narx noto\u2019g\u2019ri formatda") from exc
+    if not price.is_finite():
+        raise ValueError("Narx noto\u2019g\u2019ri formatda")
     if price < 0:
         raise ValueError("Narx manfiy bo\u2019lishi mumkin emas")
+    if price > Decimal("9999999999.99"):
+        raise ValueError("Narx juda katta")
+    if price.as_tuple().exponent < -2:
+        raise ValueError("Narx 2 xonadan ortiq kasr bo\u2019lishi mumkin emas")
     return price
 
 
@@ -49,11 +56,11 @@ def validate_stock(raw: str) -> int:
     normalized = (raw or "").strip()
     if not normalized:
         raise ValueError("Miqdor bo\u2019sh bo\u2019lishi mumkin emas")
-    if not normalized.lstrip("-").isdigit():
+    if not re.fullmatch(r"[0-9]+", normalized):
         raise ValueError("Miqdor butun son bo\u2019lishi kerak")
     stock = int(normalized)
-    if stock < 0:
-        raise ValueError("Miqdor manfiy bo\u2019lishi mumkin emas")
+    if stock > 2_147_483_647:
+        raise ValueError("Miqdor juda katta")
     return stock
 
 
