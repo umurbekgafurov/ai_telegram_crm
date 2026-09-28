@@ -16,6 +16,9 @@ from app.services.memberships import ADMIN_ROLES
 
 logger = logging.getLogger(__name__)
 
+# Sentinel: distinguishes "membership_role not provided" from "explicitly None"
+_UNSET: Any = object()
+
 
 async def is_admin(
     session: AsyncSession, telegram_id: int, tenant_id: int | None = None
@@ -46,26 +49,35 @@ async def is_admin(
 def admin_only(handler: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     """Decorator: gate handler to OWNER/ADMIN of the resolved tenant.
 
-    Priority:
-    1. `membership_role` in kwargs (from TenantMiddleware) -> use it.
-    2. Else resolve via DB using `tenant_id` (if provided) or any tenant.
+    Resolution:
+    - If `membership_role` is present in kwargs (including explicit None),
+      it is authoritative: role must be in ADMIN_ROLES.
+    - Else fall back to DB lookup via `tenant_id`.
+
+    `membership_role` and `tenant_id` are consumed by the decorator
+    and are NOT forwarded to the wrapped handler.
     """
 
     @wraps(handler)
     async def wrapper(event: Any, *args: Any, **kwargs: Any) -> Any:
         session = kwargs.get("session")
         user = getattr(event, "from_user", None)
-        membership_role = kwargs.get("membership_role")
+
+        # Sentinel-based detection: distinguishes "missing" from "None"
+        membership_role = kwargs.pop("membership_role", _UNSET)
+        tenant_id = kwargs.pop("tenant_id", None)
 
         if session is None or user is None:
             logger.error("admin_only: missing session or from_user")
             await _deny(event)
             return None
 
-        if membership_role is not None:
+        if membership_role is not _UNSET:
+            # Explicit role provided (possibly None) -> authoritative
             allowed = membership_role in ADMIN_ROLES
         else:
-            allowed = await is_admin(session, user.id, kwargs.get("tenant_id"))
+            # Not provided -> resolve from DB
+            allowed = await is_admin(session, user.id, tenant_id)
 
         if not allowed:
             await _deny(event)
