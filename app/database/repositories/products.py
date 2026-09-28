@@ -1,4 +1,8 @@
-"""Async repository for Product persistence operations."""
+"""Async repository for Product persistence operations (tenant-aware).
+
+Every business query MUST be scoped by tenant_id. Cross-tenant reads are
+never allowed from business code paths.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +18,7 @@ from app.database.models import Product
 class ProductRepository:
     """Encapsulates all database access for the Product entity.
 
-    No raw SQL — everything goes through the SQLAlchemy ORM / Core query builder.
+    All business methods require tenant_id.
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -23,6 +27,7 @@ class ProductRepository:
     async def create(
         self,
         *,
+        tenant_id: int,
         name: str,
         sku: str,
         price: Decimal,
@@ -32,8 +37,9 @@ class ProductRepository:
         description: str | None = None,
         photos: list[str] | None = None,
     ) -> Product:
-        """Create and persist a new product."""
+        """Create and persist a new product owned by `tenant_id`."""
         product = Product(
+            tenant_id=tenant_id,
             name=name,
             sku=sku,
             price=price,
@@ -48,38 +54,60 @@ class ProductRepository:
         await self._session.refresh(product)
         return product
 
-    async def get_by_id(self, product_id: int) -> Product | None:
-        """Fetch a product by its primary key."""
+    async def get_by_id(self, tenant_id: int, product_id: int) -> Product | None:
+        """Fetch a product by id, scoped to tenant."""
         result = await self._session.execute(
-            select(Product).where(Product.id == product_id)
+            select(Product).where(
+                Product.id == product_id,
+                Product.tenant_id == tenant_id,
+            )
         )
         return result.scalar_one_or_none()
 
-    async def get_by_sku(self, sku: str) -> Product | None:
-        """Fetch a product by its unique SKU."""
-        result = await self._session.execute(select(Product).where(Product.sku == sku))
+    async def get_by_sku(self, tenant_id: int, sku: str) -> Product | None:
+        """Fetch a product by SKU within a tenant."""
+        result = await self._session.execute(
+            select(Product).where(
+                Product.tenant_id == tenant_id,
+                Product.sku == sku,
+            )
+        )
         return result.scalar_one_or_none()
 
-    async def list_active(self, limit: int = 50, offset: int = 0) -> list[Product]:
-        """List active (non-archived) products, paginated, newest first."""
+    async def list_active(
+        self,
+        *,
+        tenant_id: int,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Product]:
+        """List active (non-archived) products for a tenant, newest first."""
         result = await self._session.execute(
             select(Product)
-            .where(Product.status == "active")
+            .where(
+                Product.tenant_id == tenant_id,
+                Product.status == "active",
+            )
             .order_by(Product.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
         return list(result.scalars().all())
 
-    async def update(self, product_id: int, **fields: Any) -> Product:
-        """Partially update a product's fields.
+    async def update(
+        self, tenant_id: int, product_id: int, **fields: Any
+    ) -> Product:
+        """Partially update a product's fields (tenant-scoped).
 
         Raises:
-            ValueError: if the product does not exist, or an unknown field is passed.
+            ValueError: if the product does not exist within this tenant,
+                        or an unknown field is passed.
         """
-        product = await self.get_by_id(product_id)
+        product = await self.get_by_id(tenant_id, product_id)
         if product is None:
-            raise ValueError(f"Product with id={product_id} not found")
+            raise ValueError(
+                f"Product with id={product_id} not found in tenant={tenant_id}"
+            )
 
         allowed_fields = {
             "name",
@@ -101,13 +129,13 @@ class ProductRepository:
         await self._session.refresh(product)
         return product
 
-    async def soft_delete(self, product_id: int) -> bool:
-        """Mark a product as archived instead of deleting the row.
+    async def soft_delete(self, tenant_id: int, product_id: int) -> bool:
+        """Mark a product as archived (tenant-scoped).
 
         Returns:
             True if a product was found and archived, False otherwise.
         """
-        product = await self.get_by_id(product_id)
+        product = await self.get_by_id(tenant_id, product_id)
         if product is None:
             return False
         product.status = "archived"
