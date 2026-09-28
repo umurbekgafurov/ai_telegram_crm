@@ -1,4 +1,4 @@
-"""Authorization service + @admin_only decorator."""
+FILES["app/services/auth.py"] = '''"""Authorization service + @admin_only decorator (tenant-aware).""" 
 
 from __future__ import annotations
 
@@ -11,47 +11,89 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import User
+from app.database.models import TenantMembership
+from app.services.memberships import ADMIN_ROLES
 
 logger = logging.getLogger(__name__)
 
 
-async def is_admin(session: AsyncSession, telegram_id: int) -> bool:
-    """Check role from DB (source of truth)."""
+async def is_admin(
+    session: AsyncSession, telegram_id: int, tenant_id: int | None = None
+) -> bool:
+    """Return True if user is admin of the given tenant.
+
+    If tenant_id is None, resolves the user's first active tenant membership
+    and checks its role. Authorization is ALWAYS based on tenant_memberships,
+    never on users.role.
+    """
+    if tenant_id is None:
+        # Resolve user's first active admin membership
+        result = await session.execute(
+            select(TenantMembership.role)
+            .join(
+                "users",
+                "users.id = tenant_memberships.user_id",
+            )
+            .where(
+                "users.telegram_id = :tid",
+                TenantMembership.is_active.is_(True),
+                TenantMembership.role.in_(ADMIN_ROLES),
+            )
+            .limit(1),
+            {"tid": telegram_id},
+        )
+        role = result.scalar_one_or_none()
+        return role in ADMIN_ROLES
+
     result = await session.execute(
-        select(User.role).where(User.telegram_id == telegram_id)
+        select(TenantMembership.role)
+        .join("users", "users.id = tenant_memberships.user_id")
+        .where(
+            "users.telegram_id = :tid",
+            TenantMembership.tenant_id == tenant_id,
+            TenantMembership.is_active.is_(True),
+        ),
+        {"tid": telegram_id},
     )
     role = result.scalar_one_or_none()
-    return role in ("admin", "manager")
+    return role in ADMIN_ROLES
 
 
 def admin_only(handler: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
-    """Decorator: gate handler to admin/manager role only.
+    """Decorator: gate handler to OWNER/ADMIN of the resolved tenant.
 
-    The decorated handler MUST declare a `session: AsyncSession` parameter
-    (aiogram's DI relies on the wrapped handler's signature via functools.wraps).
+    Requires `session` in kwargs (via DatabaseMiddleware) and either
+    `tenant_id`/`membership_role` in kwargs (via TenantMiddleware) or
+    it will resolve from DB.
     """
 
     @wraps(handler)
     async def wrapper(event: Any, *args: Any, **kwargs: Any) -> Any:
         session = kwargs.get("session")
         user = getattr(event, "from_user", None)
+        membership_role = kwargs.get("membership_role")
 
         if session is None or user is None:
             logger.error("admin_only: missing session or from_user")
-            if isinstance(event, CallbackQuery):
-                await event.answer("Xatolik yuz berdi.", show_alert=True)
-            elif isinstance(event, Message):
-                await event.answer("Xatolik yuz berdi.")
+            await _deny(event)
             return None
 
-        if not await is_admin(session, user.id):
-            if isinstance(event, CallbackQuery):
-                await event.answer("Ruxsat yo\u2019q.", show_alert=True)
-            elif isinstance(event, Message):
-                await event.answer("Ruxsat yo\u2019q.")
+        if membership_role is not None:
+            allowed = membership_role in ADMIN_ROLES
+        else:
+            allowed = await is_admin(session, user.id, kwargs.get("tenant_id"))
+
+        if not allowed:
+            await _deny(event)
             return None
 
         return await handler(event, *args, **kwargs)
 
     return wrapper
+
+
+async def _deny(event: Any) -> None:
+    if isinstance(event, CallbackQuery):
+        await event.answer("Ruxsat yo\u2019q.", show_alert=True)
+    elif isinstance(event, Message):
+        await event.answer("Ruxsat yo\u2019q.")
