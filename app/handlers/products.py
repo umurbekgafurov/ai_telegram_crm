@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
+from html import escape
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -65,25 +67,21 @@ async def start_add_product(
 
 
 # --------------------------------------------------------------------------
-# FSM cancel — MUST come BEFORE ProductForm handlers so it wins the text match
-# --------------------------------------------------------------------------
-
-
-# --------------------------------------------------------------------------
-# FSM cancel (must remain last in this router)
+# FSM cancel — registered BEFORE ProductForm handlers
 # --------------------------------------------------------------------------
 
 
 @router.message(Command("cancel"))
 async def cancel_any_fsm(message: Message, state: FSMContext) -> None:
-    """Cancel any active FSM flow."""
+    """Cancel any active FSM flow (works in any state)."""
     current = await state.get_state()
     if current is None:
         await message.answer("Hozircha faol jarayon yo\u2019q.")
         return
     await state.clear()
     await message.answer(
-        "\u274C Jarayon bekor qilindi.", reply_markup=main_admin_menu()
+        "\u274C Jarayon bekor qilindi.",
+        reply_markup=main_admin_menu(),
     )
 
 
@@ -108,7 +106,6 @@ async def process_sku(message: Message, state: FSMContext, repo: ProductReposito
         return
 
     if not await product_service.validate_sku_unique(repo, sku):
-        from html import escape
         await message.answer(
             f"Bu SKU ({escape(sku)}) allaqachon mavjud. Boshqa SKU kiriting:"
         )
@@ -125,8 +122,7 @@ async def process_price(message: Message, state: FSMContext) -> None:
     try:
         price = product_service.validate_price(message.text or "")
     except ValueError as exc:
-        from html import escape as _esc
-        await message.answer(_esc(str(exc)) + ". Qaytadan kiriting:")
+        await message.answer(escape(str(exc)) + ". Qaytadan kiriting:")
         return
     await state.update_data(price=str(price))
     await state.set_state(ProductForm.stock)
@@ -136,12 +132,10 @@ async def process_price(message: Message, state: FSMContext) -> None:
 @router.message(ProductForm.stock)
 async def process_stock(message: Message, state: FSMContext) -> None:
     """Step 4: collect and validate stock, then show confirmation."""
-    from html import escape
     try:
         stock = product_service.validate_stock(message.text or "")
     except ValueError as exc:
-        from html import escape as _esc
-        await message.answer(_esc(str(exc)) + ". Qaytadan kiriting:")
+        await message.answer(escape(str(exc)) + ". Qaytadan kiriting:")
         return
 
     await state.update_data(stock=stock)
@@ -167,9 +161,6 @@ async def confirm_add_product(
     session: AsyncSession,
 ) -> None:
     """Persist the product after user confirmation."""
-    from decimal import Decimal
-    from html import escape
-
     data = await state.get_data()
 
     try:
@@ -320,5 +311,3 @@ async def back_to_home(
             reply_markup=main_admin_menu(),
         )
     await callback.answer()
-
-
