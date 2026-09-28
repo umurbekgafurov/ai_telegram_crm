@@ -1,4 +1,4 @@
-"""/admin section: reports, settings, and stub handlers for M1."""
+"""/admin section: reports, settings (stubs for M1)."""
 
 from __future__ import annotations
 
@@ -6,42 +6,35 @@ import logging
 
 from aiogram import F, Router
 from aiogram.types import Message
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
+from app.services.auth import admin_only
 
 logger = logging.getLogger(__name__)
 router = Router(name="admin")
 
-settings = get_settings()
 
-
-@router.message(F.text == "📊 Hisobotlar")
-async def reports_menu(message: Message) -> None:
-    """Reports section — M7'da to'liq ishlaydi."""
-    if message.from_user is None or message.from_user.id not in settings.ADMIN_IDS:
-        await message.answer("Ruxsat yo'q.")
-        return
+@router.message(F.text == "\U0001F4CA Hisobotlar")
+@admin_only
+async def reports_menu(message: Message, session: AsyncSession) -> None:
     await message.answer(
-        "📊 <b>Hisobotlar</b>\n\n"
-        "Bu bo'lim M7 milestone'da to'liq ishga tushadi:\n"
-        "• Kunlik/haftalik savdo\n"
-        "• Lidlar funnel\n"
-        "• AI xarajatlar\n\n"
+        "\U0001F4CA <b>Hisobotlar</b>\n\n"
+        "Bu bo\u2019lim M7 milestone'da to'liq ishga tushadi:\n"
+        "\u2022 Kunlik/haftalik savdo\n"
+        "\u2022 Lidlar funnel\n"
+        "\u2022 AI xarajatlar\n\n"
         "Hozircha mavjud emas."
     )
 
 
-@router.message(F.text == "⚙️ Sozlamalar")
-async def settings_menu(message: Message) -> None:
-    """Settings section — M8'da to'liq ishlaydi."""
-    if message.from_user is None or message.from_user.id not in settings.ADMIN_IDS:
-        await message.answer("Ruxsat yo'q.")
-        return
+@router.message(F.text == "\u2699\uFE0F Sozlamalar")
+@admin_only
+async def settings_menu(message: Message, session: AsyncSession) -> None:
     await message.answer(
-        "⚙️ <b>Sozlamalar</b>\n\n"
-        "Bu bo'lim M8 milestone'da to'liq ishga tushadi:\n"
-        "• Adminlar boshqaruvi\n"
-        "• AI promptlar\n"
-        "• Integratsiyalar\n\n"
+        "\u2699\uFE0F <b>Sozlamalar</b>\n\n"
+        "Bu bo\u2019lim M8 milestone'da to'liq ishga tushadi:\n"
+        "\u2022 Adminlar boshqaruvi\n"
+        "\u2022 AI promptlar\n"
+        "\u2022 Integratsiyalar\n\n"
         "Hozircha mavjud emas."
     )
