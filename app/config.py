@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     )
     LOG_LEVEL: str = Field(default="INFO", description="Python logging level")
     DEV_MODE: bool = Field(default=False, description="Dev mode: create tables on startup")
+    DEFAULT_TENANT_NAME: str = Field(default="Default Shop", description="Default tenant display name")
+    DEFAULT_TENANT_SLUG: str = Field(default="default", description="Default tenant slug")
 
     @field_validator("ADMIN_IDS", mode="before")
     @classmethod
