@@ -1,17 +1,14 @@
 """Product management handlers: FSM + paginated listing."""
 
 from __future__ import annotations
-
 import logging
 from decimal import Decimal, InvalidOperation
 from html import escape
-
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.database.repositories.products import ProductRepository
 from app.keyboards.admin import (
     CB_CONFIRM_NO,
@@ -78,7 +75,6 @@ async def process_sku(message: Message, state: FSMContext, repo: ProductReposito
     await state.set_state(ProductForm.price)
     await message.answer("Narxni kiriting (masalan: 150000.00):")
 
-
 @router.message(ProductForm.price)
 async def process_price(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip().replace(",", ".")
@@ -94,7 +90,6 @@ async def process_price(message: Message, state: FSMContext) -> None:
     await state.set_state(ProductForm.stock)
     await message.answer("Ombordagi miqdorni kiriting (butun son):")
 
-
 @router.message(ProductForm.stock)
 async def process_stock(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
@@ -108,15 +103,14 @@ async def process_stock(message: Message, state: FSMContext) -> None:
     await state.update_data(stock=stock)
     data = await state.get_data()
     await state.set_state(ProductForm.confirm)
-    summary = (
+        summary = (
         "Quyidagi mahsulotni saqlashni tasdiqlaysizmi?\n\n"
-        f"Nomi: {data['name']}\n"
-        f"SKU: {data['sku']}\n"
+        f"Nomi: {escape(data['name'])}\n"
+        f"SKU: {escape(data['sku'])}\n"
         f"Narx: {data['price']}\n"
         f"Miqdor: {data['stock']}"
     )
     await message.answer(summary, reply_markup=confirm_kb())
-
 
 @router.callback_query(ProductForm.confirm, F.data == CB_CONFIRM_YES)
 @admin_only
@@ -200,7 +194,6 @@ async def list_products(
         await callback.message.answer(text, reply_markup=kb)
     await callback.answer()
 
-
 @router.callback_query(F.data.startswith(CB_PRODUCT_PAGE_PREFIX))
 @admin_only
 async def paginate_products(
@@ -220,7 +213,6 @@ async def paginate_products(
     if callback.message is not None:
         await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
-
 
 @router.callback_query(F.data == CB_PRODUCT_SEARCH)
 @admin_only
@@ -252,7 +244,6 @@ async def back_to_home(callback: CallbackQuery, state: FSMContext) -> None:
             reply_markup=main_admin_menu(),
         )
     await callback.answer()
-
 
 @router.message(Command("cancel"))
 async def cancel_any_fsm(message: Message, state: FSMContext) -> None:
