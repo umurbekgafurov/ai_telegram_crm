@@ -43,3 +43,7 @@ htmlcov/
 .ruff_cache/
 
 # NOTE: poetry.lock IS tracked (reproducible builds).
+
+# M2.x apply scripts — never commit
+fix_*.py
+apply_*.py
