@@ -64,6 +64,29 @@ async def start_add_product(
     await callback.answer()
 
 
+# --------------------------------------------------------------------------
+# FSM cancel — MUST come BEFORE ProductForm handlers so it wins the text match
+# --------------------------------------------------------------------------
+
+
+# --------------------------------------------------------------------------
+# FSM cancel (must remain last in this router)
+# --------------------------------------------------------------------------
+
+
+@router.message(Command("cancel"))
+async def cancel_any_fsm(message: Message, state: FSMContext) -> None:
+    """Cancel any active FSM flow."""
+    current = await state.get_state()
+    if current is None:
+        await message.answer("Hozircha faol jarayon yo\u2019q.")
+        return
+    await state.clear()
+    await message.answer(
+        "\u274C Jarayon bekor qilindi.", reply_markup=main_admin_menu()
+    )
+
+
 @router.message(ProductForm.name)
 async def process_name(message: Message, state: FSMContext) -> None:
     """Step 1: collect product name."""
@@ -101,10 +124,9 @@ async def process_price(message: Message, state: FSMContext) -> None:
     """Step 3: collect and validate price."""
     try:
         price = product_service.validate_price(message.text or "")
-    except ValueError:
-        await message.answer(
-            "Narx noto\u2019g\u2019ri formatda. Raqam kiriting (masalan: 150000.00):"
-        )
+    except ValueError as exc:
+        from html import escape as _esc
+        await message.answer(_esc(str(exc)) + ". Qaytadan kiriting:")
         return
     await state.update_data(price=str(price))
     await state.set_state(ProductForm.stock)
@@ -117,8 +139,9 @@ async def process_stock(message: Message, state: FSMContext) -> None:
     from html import escape
     try:
         stock = product_service.validate_stock(message.text or "")
-    except ValueError:
-        await message.answer("Miqdor butun son bo\u2019lishi kerak. Qaytadan kiriting:")
+    except ValueError as exc:
+        from html import escape as _esc
+        await message.answer(_esc(str(exc)) + ". Qaytadan kiriting:")
         return
 
     await state.update_data(stock=stock)
@@ -299,19 +322,3 @@ async def back_to_home(
     await callback.answer()
 
 
-# --------------------------------------------------------------------------
-# FSM cancel (must remain last in this router)
-# --------------------------------------------------------------------------
-
-
-@router.message(Command("cancel"))
-async def cancel_any_fsm(message: Message, state: FSMContext) -> None:
-    """Cancel any active FSM flow."""
-    current = await state.get_state()
-    if current is None:
-        await message.answer("Hozircha faol jarayon yo\u2019q.")
-        return
-    await state.clear()
-    await message.answer(
-        "\u274C Jarayon bekor qilindi.", reply_markup=main_admin_menu()
-    )
