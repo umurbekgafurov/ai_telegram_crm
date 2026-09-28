@@ -1,10 +1,8 @@
-"""Product management handlers: FSM 'Add product' flow and paginated listing."""
+"""Product management handlers: thin orchestration over services."""
 
 from __future__ import annotations
 
 import logging
-from decimal import Decimal, InvalidOperation
-from html import escape
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -27,6 +25,7 @@ from app.keyboards.admin import (
     product_menu,
     products_pagination_kb,
 )
+from app.services import products as product_service
 from app.services.auth import admin_only
 from app.states.product import ProductForm
 
@@ -37,7 +36,7 @@ PAGE_SIZE = 10
 
 
 # --------------------------------------------------------------------------
-# Entry point: open the products menu (ADMIN ONLY)
+# Entry point
 # --------------------------------------------------------------------------
 
 
@@ -72,7 +71,6 @@ async def process_name(message: Message, state: FSMContext) -> None:
     if not name:
         await message.answer("Nom bo\u2019sh bo\u2019lishi mumkin emas. Qaytadan kiriting:")
         return
-
     await state.update_data(name=name)
     await state.set_state(ProductForm.sku)
     await message.answer("SKU (unikal kod) kiriting:")
@@ -86,8 +84,8 @@ async def process_sku(message: Message, state: FSMContext, repo: ProductReposito
         await message.answer("SKU bo\u2019sh bo\u2019lishi mumkin emas. Qaytadan kiriting:")
         return
 
-    existing = await repo.get_by_sku(sku)
-    if existing is not None:
+    if not await product_service.validate_sku_unique(repo, sku):
+        from html import escape
         await message.answer(
             f"Bu SKU ({escape(sku)}) allaqachon mavjud. Boshqa SKU kiriting:"
         )
@@ -101,17 +99,13 @@ async def process_sku(message: Message, state: FSMContext, repo: ProductReposito
 @router.message(ProductForm.price)
 async def process_price(message: Message, state: FSMContext) -> None:
     """Step 3: collect and validate price."""
-    raw = (message.text or "").strip().replace(",", ".")
     try:
-        price = Decimal(raw)
-    except (InvalidOperation, ValueError):
-        await message.answer("Narx noto\u2019g\u2019ri formatda. Raqam kiriting (masalan: 150000.00):")
+        price = product_service.validate_price(message.text or "")
+    except ValueError:
+        await message.answer(
+            "Narx noto\u2019g\u2019ri formatda. Raqam kiriting (masalan: 150000.00):"
+        )
         return
-
-    if price < 0:
-        await message.answer("Narx manfiy bo\u2019lishi mumkin emas. Qaytadan kiriting:")
-        return
-
     await state.update_data(price=str(price))
     await state.set_state(ProductForm.stock)
     await message.answer("Ombordagi miqdorni kiriting (butun son):")
@@ -119,15 +113,12 @@ async def process_price(message: Message, state: FSMContext) -> None:
 
 @router.message(ProductForm.stock)
 async def process_stock(message: Message, state: FSMContext) -> None:
-    """Step 4: collect and validate stock quantity, then show confirmation."""
-    raw = (message.text or "").strip()
-    if not raw.lstrip("-").isdigit():
+    """Step 4: collect and validate stock, then show confirmation."""
+    from html import escape
+    try:
+        stock = product_service.validate_stock(message.text or "")
+    except ValueError:
         await message.answer("Miqdor butun son bo\u2019lishi kerak. Qaytadan kiriting:")
-        return
-
-    stock = int(raw)
-    if stock < 0:
-        await message.answer("Miqdor manfiy bo\u2019lishi mumkin emas. Qaytadan kiriting:")
         return
 
     await state.update_data(stock=stock)
@@ -153,11 +144,13 @@ async def confirm_add_product(
     session: AsyncSession,
 ) -> None:
     """Persist the product after user confirmation."""
+    from decimal import Decimal
+    from html import escape
+
     data = await state.get_data()
 
     try:
-        existing = await repo.get_by_sku(data["sku"])
-        if existing is not None:
+        if not await product_service.validate_sku_unique(repo, data["sku"]):
             if callback.message is not None:
                 await callback.message.answer(
                     "Kechirasiz, bu SKU boshqa mahsulot tomonidan band qilindi. "
@@ -167,7 +160,8 @@ async def confirm_add_product(
             await callback.answer()
             return
 
-        product = await repo.create(
+        product = await product_service.create_product(
+            repo,
             name=data["name"],
             sku=data["sku"],
             price=Decimal(data["price"]),
@@ -209,26 +203,8 @@ async def cancel_add_product(callback: CallbackQuery, state: FSMContext) -> None
 
 
 # --------------------------------------------------------------------------
-# List products (paginated, ADMIN ONLY)
+# List products
 # --------------------------------------------------------------------------
-
-
-async def _render_products_page(repo: ProductRepository, page: int) -> tuple[str, int]:
-    """Build the text body for a page of products."""
-    offset = page * PAGE_SIZE
-    products = await repo.list_active(limit=PAGE_SIZE, offset=offset)
-
-    if not products and page == 0:
-        return "Hozircha faol mahsulotlar yo\u2019q.", 0
-
-    lines = [f"\U0001F4CB Mahsulotlar (sahifa {page + 1}):\n"]
-    for p in products:
-        lines.append(
-            f"\u2022 {escape(p.name)} \u2014 {p.price} so\u2019m "
-            f"(qoldiq: {p.stock_quantity}) [{escape(p.sku)}]"
-        )
-
-    return "\n".join(lines), len(products)
 
 
 @router.callback_query(F.data == CB_PRODUCT_LIST)
@@ -237,8 +213,13 @@ async def list_products(
     callback: CallbackQuery, repo: ProductRepository, session: AsyncSession
 ) -> None:
     """Show the first page of the product list."""
-    text, count = await _render_products_page(repo, page=0)
-    kb = products_pagination_kb(page=0, has_next=count == PAGE_SIZE, has_prev=False)
+    products = await product_service.list_active_products(
+        repo, page=0, page_size=PAGE_SIZE
+    )
+    text = product_service.format_products_page(products, page=0)
+    kb = products_pagination_kb(
+        page=0, has_next=len(products) == PAGE_SIZE, has_prev=False
+    )
     if callback.message is not None:
         await callback.message.answer(text, reply_markup=kb)
     await callback.answer()
@@ -261,9 +242,13 @@ async def paginate_products(
         return
 
     page = max(page, 0)
-    text, count = await _render_products_page(repo, page=page)
-    kb = products_pagination_kb(page=page, has_next=count == PAGE_SIZE, has_prev=page > 0)
-
+    products = await product_service.list_active_products(
+        repo, page=page, page_size=PAGE_SIZE
+    )
+    text = product_service.format_products_page(products, page=page)
+    kb = products_pagination_kb(
+        page=page, has_next=len(products) == PAGE_SIZE, has_prev=page > 0
+    )
     if callback.message is not None:
         await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
@@ -272,8 +257,10 @@ async def paginate_products(
 @router.callback_query(F.data == CB_PRODUCT_SEARCH)
 @admin_only
 async def search_products_stub(callback: CallbackQuery, session: AsyncSession) -> None:
-    """Placeholder for search (out of scope for M1)."""
-    await callback.answer("Qidiruv funksiyasi tez orada qo\u2019shiladi.", show_alert=True)
+    """Placeholder for search (out of scope for M2.1)."""
+    await callback.answer(
+        "Qidiruv funksiyasi tez orada qo\u2019shiladi.", show_alert=True
+    )
 
 
 # --------------------------------------------------------------------------
@@ -287,8 +274,7 @@ async def back_to_products_menu(callback: CallbackQuery, session: AsyncSession) 
     """Return to the main Products inline menu."""
     if callback.message is not None:
         await callback.message.edit_text(
-            "Mahsulotlar bo\u2019limi:",
-            reply_markup=product_menu(),
+            "Mahsulotlar bo\u2019limi:", reply_markup=product_menu()
         )
     await callback.answer()
 
@@ -300,13 +286,11 @@ async def back_to_home(
 ) -> None:
     """Return to the main reply keyboard menu."""
     await state.clear()
-
     if callback.message is not None:
         try:
             await callback.message.delete()
         except Exception:
             await callback.message.edit_text("\U0001F3E0 Bosh menyu")
-
         await callback.message.answer(
             "\U0001F3E0 <b>Bosh menyu</b>\n\n"
             "Quyidagi bo\u2019limlardan birini tanlang:",
@@ -316,20 +300,18 @@ async def back_to_home(
 
 
 # --------------------------------------------------------------------------
-# FSM cancel (must be the last handler in this router)
+# FSM cancel (must remain last in this router)
 # --------------------------------------------------------------------------
 
 
 @router.message(Command("cancel"))
 async def cancel_any_fsm(message: Message, state: FSMContext) -> None:
-    """Cancel any active FSM flow (works in any state)."""
+    """Cancel any active FSM flow."""
     current = await state.get_state()
     if current is None:
         await message.answer("Hozircha faol jarayon yo\u2019q.")
         return
-
     await state.clear()
     await message.answer(
-        "\u274C Jarayon bekor qilindi.",
-        reply_markup=main_admin_menu(),
+        "\u274C Jarayon bekor qilindi.", reply_markup=main_admin_menu()
     )
