@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.database.database import dispose_engine, init_db
 from app.handlers import admin, products, start
 from app.middlewares.db import DatabaseMiddleware
+from app.middlewares.tenant import TenantMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,11 @@ async def main() -> None:
         except Exception:
             logger.exception("Failed to notify user about error")
 
+    # Middleware ORDER matters:
+    #   1. DatabaseMiddleware  -> injects `session` + `repo`
+    #   2. TenantMiddleware    -> injects `tenant_id`, `membership_role`, `db_user`
     dispatcher.update.middleware(DatabaseMiddleware())
+    dispatcher.update.middleware(TenantMiddleware())
 
     dispatcher.include_router(start.router)
     dispatcher.include_router(admin.router)
