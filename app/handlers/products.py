@@ -98,14 +98,24 @@ async def process_name(message: Message, state: FSMContext) -> None:
 
 
 @router.message(ProductForm.sku)
-async def process_sku(message: Message, state: FSMContext, repo: ProductRepository) -> None:
-    """Step 2: collect and validate SKU uniqueness."""
+async def process_sku(
+    message: Message,
+    state: FSMContext,
+    repo: ProductRepository,
+    tenant_id: int | None = None,
+) -> None:
+    """Step 2: collect and validate SKU uniqueness within the tenant."""
     sku = (message.text or "").strip()
     if not sku:
         await message.answer("SKU bo\u2019sh bo\u2019lishi mumkin emas. Qaytadan kiriting:")
         return
 
-    if not await product_service.validate_sku_unique(repo, sku):
+    if tenant_id is None:
+        await message.answer("Tenant topilmadi. Qaytadan /start qiling.")
+        await state.clear()
+        return
+
+    if not await product_service.validate_sku_unique(repo, tenant_id, sku):
         await message.answer(
             f"Bu SKU ({escape(sku)}) allaqachon mavjud. Boshqa SKU kiriting:"
         )
@@ -159,12 +169,20 @@ async def confirm_add_product(
     state: FSMContext,
     repo: ProductRepository,
     session: AsyncSession,
+    tenant_id: int | None = None,
 ) -> None:
     """Persist the product after user confirmation."""
+    if tenant_id is None:
+        if callback.message is not None:
+            await callback.message.answer("Tenant topilmadi. Qaytadan /start qiling.")
+        await state.clear()
+        await callback.answer()
+        return
+
     data = await state.get_data()
 
     try:
-        if not await product_service.validate_sku_unique(repo, data["sku"]):
+        if not await product_service.validate_sku_unique(repo, tenant_id, data["sku"]):
             if callback.message is not None:
                 await callback.message.answer(
                     "Kechirasiz, bu SKU boshqa mahsulot tomonidan band qilindi. "
@@ -176,6 +194,7 @@ async def confirm_add_product(
 
         product = await product_service.create_product(
             repo,
+            tenant_id=tenant_id,
             name=data["name"],
             sku=data["sku"],
             price=Decimal(data["price"]),
@@ -200,8 +219,9 @@ async def confirm_add_product(
     await callback.answer("Saqlandi!")
 
     logger.info(
-        "Product created id=%s sku=%s by admin=%s",
+        "Product created id=%s tenant_id=%s sku=%s by admin=%s",
         product.id,
+        product.tenant_id,
         product.sku,
         callback.from_user.id if callback.from_user else None,
     )
@@ -217,18 +237,27 @@ async def cancel_add_product(callback: CallbackQuery, state: FSMContext) -> None
 
 
 # --------------------------------------------------------------------------
-# List products
+# List products (tenant-scoped)
 # --------------------------------------------------------------------------
 
 
 @router.callback_query(F.data == CB_PRODUCT_LIST)
 @admin_only
 async def list_products(
-    callback: CallbackQuery, repo: ProductRepository, session: AsyncSession
+    callback: CallbackQuery,
+    repo: ProductRepository,
+    session: AsyncSession,
+    tenant_id: int | None = None,
 ) -> None:
     """Show the first page of the product list."""
+    if tenant_id is None:
+        if callback.message is not None:
+            await callback.message.answer("Tenant topilmadi. Qaytadan /start qiling.")
+        await callback.answer()
+        return
+
     products = await product_service.list_active_products(
-        repo, page=0, page_size=PAGE_SIZE
+        repo, tenant_id=tenant_id, page=0, page_size=PAGE_SIZE
     )
     text = product_service.format_products_page(products, page=0)
     kb = products_pagination_kb(
@@ -242,11 +271,18 @@ async def list_products(
 @router.callback_query(F.data.startswith(CB_PRODUCT_PAGE_PREFIX))
 @admin_only
 async def paginate_products(
-    callback: CallbackQuery, repo: ProductRepository, session: AsyncSession
+    callback: CallbackQuery,
+    repo: ProductRepository,
+    session: AsyncSession,
+    tenant_id: int | None = None,
 ) -> None:
     """Navigate to a specific page of the product list."""
     if callback.data is None:
         await callback.answer()
+        return
+
+    if tenant_id is None:
+        await callback.answer("Tenant topilmadi.", show_alert=True)
         return
 
     try:
@@ -257,7 +293,7 @@ async def paginate_products(
 
     page = max(page, 0)
     products = await product_service.list_active_products(
-        repo, page=page, page_size=PAGE_SIZE
+        repo, tenant_id=tenant_id, page=page, page_size=PAGE_SIZE
     )
     text = product_service.format_products_page(products, page=page)
     kb = products_pagination_kb(
@@ -271,7 +307,7 @@ async def paginate_products(
 @router.callback_query(F.data == CB_PRODUCT_SEARCH)
 @admin_only
 async def search_products_stub(callback: CallbackQuery, session: AsyncSession) -> None:
-    """Placeholder for search (out of scope for M2.1)."""
+    """Placeholder for search (out of scope for M2.2)."""
     await callback.answer(
         "Qidiruv funksiyasi tez orada qo\u2019shiladi.", show_alert=True
     )
