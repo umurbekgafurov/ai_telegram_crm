@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal, InvalidOperation
+from html import escape
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -71,7 +72,7 @@ async def process_sku(message: Message, state: FSMContext, repo: ProductReposito
         return
     existing = await repo.get_by_sku(sku)
     if existing is not None:
-        await message.answer(f"Bu SKU ({sku}) allaqachon mavjud. Boshqa SKU kiriting:")
+        await message.answer(f"Bu SKU ({escape(sku)}) allaqachon mavjud. Boshqa SKU kiriting:")
         return
     await state.update_data(sku=sku)
     await state.set_state(ProductForm.price)
@@ -156,9 +157,15 @@ async def confirm_add_product(
     await state.clear()
     if callback.message is not None:
         await callback.message.answer(
-            f"\u2705 Mahsulot saqlandi: {product.name} (SKU: {product.sku})"
+            f"\u2705 Mahsulot saqlandi: {escape(product.name)} (SKU: {escape(product.sku)})"
         )
     await callback.answer("Saqlandi!")
+    logger.info(
+    "Product created id=%s sku=%s by admin=%s",
+    product.id,
+    product.sku,
+    callback.from_user.id if callback.from_user else None,
+)
 
 
 @router.callback_query(ProductForm.confirm, F.data == CB_CONFIRM_NO)
@@ -176,10 +183,9 @@ async def _render_products_page(repo: ProductRepository, page: int) -> tuple[str
         return "Hozircha faol mahsulotlar yo\u2019q.", 0
     lines = [f"\U0001F4CB Mahsulotlar (sahifa {page + 1}):\n"]
     for p in products:
-        lines.append(
-            f"\u2022 {p.name} \u2014 {p.price} so\u2019m "
-            f"(qoldiq: {p.stock_quantity}) [{p.sku}]"
-        )
+        lines.append( f"\u2022 {escape(p.name)} \u2014 {p.price} so\u2019m "
+    f"(qoldiq: {p.stock_quantity}) [{escape(p.sku)}]"
+    )
     return "\n".join(lines), len(products)
 
 
