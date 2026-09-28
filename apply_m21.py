@@ -1053,7 +1053,7 @@ def append_pyproject() -> None:
 
 def main() -> int:
     print("=" * 70)
-    print("M2.1 Service Layer Extraction — writing files")
+    print("M2.1 Service Layer Extraction - writing files")
     print("=" * 70)
     print()
 
@@ -1062,9 +1062,9 @@ def main() -> int:
             write_file(rel, content)
         except Exception as e:
             print(f"ERROR writing {rel}: {e}")
-        return 1  
-  
-	append_pyproject()
+            return 1
+
+    append_pyproject()
 
     print()
     print("=" * 70)
@@ -1095,4 +1095,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    import sys
     sys.exit(main())
